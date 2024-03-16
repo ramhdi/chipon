@@ -2,3 +2,4 @@ venv/
 .idea/
 test.v
 test_tb.v
+data/
