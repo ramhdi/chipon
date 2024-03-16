@@ -31,9 +31,7 @@ class Model:
         for layer in self.layers:
             start = layer.forward_range(start)
 
-    def emit(self):
-        out = ["`timescale 1ns / 1ps"]
-
+    def get_vars(self):
         in_params = [f"in{i}" for i in range(self.layers[0].shape[0])]
         out_params = [f"out{i}" for i in range(self.layers[-1].shape[-1])]
 
@@ -42,6 +40,13 @@ class Model:
 
         out_definitions = [f"    output [{self.layers[-1].out_bits[i] - 1}:0] {out_params[i]};"
                            for i in range(self.layers[-1].shape[-1])]
+
+        return in_params, out_params, in_definitions, out_definitions
+
+    def emit(self):
+        out = ["`timescale 1ns / 1ps"]
+
+        in_params, out_params, in_definitions, out_definitions = self.get_vars()
 
         top = [
             f"module top({','.join(in_params)}, {','.join(out_params)});",
@@ -74,7 +79,17 @@ class Model:
         return '\n'.join(out)
 
     def emit_test_bench(self):
-        return test_bench_template.format(input_length=2 ** self.layers[0].shape[0])
+        in_params, out_params, in_definitions, out_definitions = self.get_vars()
+
+        assigns = [f"        assign {i} = 0;" for i in in_params]
+
+        return test_bench_template.format(
+            in_params=', '.join(in_params),
+            out_params=', '.join(out_params),
+            in_definitions='\n    '.join(in_definitions),
+            out_definitions='\n    '.join(out_definitions),
+            assignments='\n'.join(assigns),
+        )
 
 
 def test():
