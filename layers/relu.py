@@ -35,7 +35,7 @@ class ReLU:
         in_definitions = [f"input [{self.in_bits[i] - 1}:0] {in_params[i]};\n"
                           for i in range(self.shape[0])]
 
-        out_definitions = [f"output [{self.out_bits[i] - 1}:0] {out_params[i]};\n"
+        out_definitions = [f"output reg [{self.out_bits[i] - 1}:0] {out_params[i]};\n"
                            for i in range(self.shape[0])]
 
         return f"""

@@ -87,8 +87,7 @@ module {self.name}({",".join(in_params)}, {",".join(out_params)});
     begin
         {'        '.join(multiply_weight)}
         {'        '.join(add_bias)}
-        
-        {'        '.join(assigns)}
     end
+    {'  '.join(assigns)}
 endmodule
 """
