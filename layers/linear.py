@@ -1,45 +1,67 @@
+from typing import List
 import numpy as np
-
 from layers.utils import range_to_bits
+from torch import nn
 
 
 class Linear:
     @classmethod
-    def layer_from(cls, layer, index: int):
-        return cls(layer.in_features, layer.out_features, layer.weight.detach().numpy().T, layer.bias.detach().numpy(),
-                   index)
+    def layer_from(cls, layer: nn.Linear, index: int):
+        """Create a Linear layer instance from a PyTorch layer with given index."""
+        print(layer.weight.detach().numpy().T)
+        print(layer.bias.detach().numpy())
+        return cls(
+            in_features=layer.in_features,
+            out_features=layer.out_features,
+            weight=layer.weight.detach().numpy().T,
+            bias=layer.bias.detach().numpy(),
+            index=index,
+        )
 
-    def __init__(self, in_features: int, out_features: int, weight: np.ndarray, bias: np.ndarray, index: int):
-        self.in_features = in_features
-        self.out_features = out_features
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        weight: np.ndarray,
+        bias: np.ndarray,
+        index: int,
+    ):
+        self.in_features: int = in_features
+        self.out_features: int = out_features
+        self.weight: np.ndarray = weight
+        self.bias: np.ndarray = bias
 
-        self.bias = bias
-        self.weight = weight
-
+        # Verify the weight and bias shapes
         self.verify_weights()
 
-        self.name = f'layer_{index}_linear_{str(self.in_features)}_{str(self.out_features)}'
-        self.shape = (self.in_features, self.out_features)
+        self.name: str = f"layer_{index}_linear_{in_features}_{out_features}"
+        self.shape: tuple = (in_features, out_features)
+        self.in_bits: List[int] = []
+        self.out_bits: List[int] = []
 
-        self.in_bits, self.out_bits = None, None
+    def __str__(self) -> str:
+        return f"Linear({self.in_features} -> {self.out_features})"
 
-    def __str__(self):
-        return f'Linear({self.in_features} -> {self.out_features})'
-
-    def verify_weights(self):
+    def verify_weights(self) -> None:
+        """Validate the shapes of weight and bias arrays."""
         if self.weight is None:
-            raise ValueError('Weight is not defined')
+            raise ValueError("Weight is not defined")
 
-        bias_shape = (self.out_features,)
-        weight_shape = (self.in_features, self.out_features)
+        expected_weight_shape = (self.in_features, self.out_features)
+        expected_bias_shape = (self.out_features,)
 
-        if self.weight.shape != weight_shape:
-            raise ValueError(f'Weight shape is not correct, expected {weight_shape}, got {self.weight.shape}')
+        if self.weight.shape != expected_weight_shape:
+            raise ValueError(
+                f"Weight shape is incorrect; expected {expected_weight_shape}, got {self.weight.shape}"
+            )
 
-        if self.bias is not None and self.bias.shape != bias_shape:
-            raise ValueError(f'Bias shape is not correct, expected {bias_shape}, got {self.bias.shape}')
+        if self.bias is not None and self.bias.shape != expected_bias_shape:
+            raise ValueError(
+                f"Bias shape is incorrect; expected {expected_bias_shape}, got {self.bias.shape}"
+            )
 
-    def forward_range(self, in_range: np.ndarray):
+    def forward_range(self, in_range: np.ndarray) -> np.ndarray:
+        """Compute the output range for this layer based on input ranges."""
         out_range = np.array([in_range.T[0] @ self.weight, in_range.T[1] @ self.weight])
         out_range = (out_range + self.bias).T
 
@@ -48,46 +70,57 @@ class Linear:
 
         return out_range
 
-    def emit(self):
-        """
-        Emit Verilog code for this layer
-        :return: Verilog code
-        """
+    def emit(self) -> str:
+        """Generate Verilog code for this linear layer."""
+        # Generate Verilog code snippets for adding bias and multiplying weights
+        add_bias_lines = [
+            f"add{i} = mul{i} + {self.bias[i]};\n" for i in range(self.out_features)
+        ]
+        multiply_weight_lines = [
+            f"mul{i} = mul{i} + in{j} * {self.weight[j][i]};\n"
+            for i in range(self.out_features)
+            for j in range(self.in_features)
+        ]
 
-        add_bias = [f'add{i} = mul{i} + {self.bias[i]};\n' for i in range(self.out_features)]
-        multiply_weight = []
-
-        for i in range(self.out_features):
-            for j in range(self.in_features):
-                multiply_weight.append(f"mul{i} = mul{i} + in{j} * {self.weight[j][i]};\n")
-
+        # Input and output parameters with definitions for Verilog
         in_params = [f"in{i}" for i in range(self.in_features)]
         out_params = [f"out{i}" for i in range(self.out_features)]
+        in_definitions = [
+            f"input [{self.in_bits[i] - 1}:0] {in_params[i]};\n"
+            for i in range(self.in_features)
+        ]
+        out_definitions = [
+            f"output [{self.out_bits[i] - 1}:0] {out_params[i]};\n"
+            for i in range(self.out_features)
+        ]
 
-        in_definitions = [f"input [{self.in_bits[i] - 1}:0] {in_params[i]};\n"
-                          for i in range(self.in_features)]
+        # Definitions for intermediate multipliers and adders in Verilog
+        mul_definitions = [
+            f"reg [{self.out_bits[i] - 1}:0] mul{i};\n"
+            for i in range(self.out_features)
+        ]
+        add_definitions = [
+            f"reg [{self.out_bits[i] - 1}:0] add{i};\n"
+            for i in range(self.out_features)
+        ]
 
-        out_definitions = [f"output [{self.out_bits[i] - 1}:0] {out_params[i]};\n"
-                           for i in range(self.out_features)]
+        # Final assignment statements in Verilog
+        assign_lines = [f"assign out{i} = add{i};\n" for i in range(self.out_features)]
 
-        mul_definition = [f"reg [{self.out_bits[i] - 1}:0] mul{i};\n" for i in range(self.out_features)]
-        add_definition = [f"reg [{self.out_bits[i] - 1}:0] add{i};\n" for i in range(self.out_features)]
-
-        assigns = [f"assign out{i} = add{i};\n" for i in range(self.out_features)]
-
+        # Return the full Verilog module as a formatted string
         return f"""
-module {self.name}({",".join(in_params)}, {",".join(out_params)});
-    {'    '.join(in_definitions)}
-    {'    '.join(out_definitions)}
+module {self.name}({", ".join(in_params)}, {", ".join(out_params)});
+    {"    ".join(in_definitions)}
+    {"    ".join(out_definitions)}
     
-    {'    '.join(mul_definition)}
-    {'    '.join(add_definition)}
+    {"    ".join(mul_definitions)}
+    {"    ".join(add_definitions)}
         
     always @(*)
     begin
-        {'        '.join(multiply_weight)}
-        {'        '.join(add_bias)}
+        {"        ".join(multiply_weight_lines)}
+        {"        ".join(add_bias_lines)}
     end
-    {'  '.join(assigns)}
+    {"  ".join(assign_lines)}
 endmodule
 """
